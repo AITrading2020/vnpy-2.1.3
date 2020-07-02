@@ -5,9 +5,9 @@ from datetime import timedelta
 
 
 class DataImport:   
-    def __init__(self, days):
+    def __init__(self, days, base_dir):
         self.d = days
-        self.base_dir = 'D:/NUS/Intern/NExT++/option_data/'
+        self.base_dir = base_dir
         self.get_strategy_data()
         
     def opt_adjust(self, x):

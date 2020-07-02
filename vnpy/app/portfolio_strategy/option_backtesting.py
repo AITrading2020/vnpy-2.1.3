@@ -5,7 +5,7 @@ from functools import lru_cache
 import traceback
 import pandas as pd
 import re
-from data_import import DataImport
+from .data_import import DataImport
 #from option_check import OptionCheck
 
 import numpy as np
@@ -30,8 +30,9 @@ INTERVAL_DELTA_MAP = {
     Interval.DAILY: timedelta(days=1),
 }
 
+
 class OptionBacktestingEngine(BacktestingEngine):
-    """"""
+	""""""
 
 	gateway_name = "OPTION_BACKTESTING"
 
@@ -128,32 +129,32 @@ class OptionBacktestingEngine(BacktestingEngine):
             progress = 0
 
             data_count = 0
-            while start < self.end:
-                end = min(end, self.end)  # Make sure end time stays within set range
+			while start < self.end:
+				end = min(end, self.end)  # Make sure end time stays within set range
 
-                data = load_bar_data(
-                    vt_symbol,
-                    self.interval,
-                    start,
-                    end
-                )
+				data = load_bar_data(
+					vt_symbol,
+					self.interval,
+					start,
+					end
+				)
 
-                for bar in data:
-                    self.dts.add(bar.datetime)
-                    self.history_data[(bar.datetime, vt_symbol)] = bar
-                    data_count += 1
+				for bar in data:
+					self.dts.add(bar.datetime)
+					self.history_data[(bar.datetime, vt_symbol)] = bar
+					data_count += 1
 
-                progress += progress_delta / total_delta
-                progress = min(progress, 1)
-                # progress_bar = "#" * int(progress * 10)
-                # self.output(f"{vt_symbol}加载进度：{progress_bar} [{progress:.0%}]")
+				progress += progress_delta / total_delta
+				progress = min(progress, 1)
+				# progress_bar = "#" * int(progress * 10)
+				# self.output(f"{vt_symbol}加载进度：{progress_bar} [{progress:.0%}]")
 
-                start = end + interval_delta
-                end += (progress_delta + interval_delta)
+				start = end + interval_delta
+				end += (progress_delta + interval_delta)
 
-            self.output(f"{vt_symbol}历史数据加载完成，数据量：{data_count}")
+			self.output(f"{vt_symbol}历史数据加载完成，数据量：{data_count}")
 
-        self.output("所有历史数据加载完成")
+			self.output("所有历史数据加载完成")
 
 	def new_bars(self, dt: datetime) -> None:
 		""""""
@@ -196,11 +197,10 @@ class OptionBacktestingEngine(BacktestingEngine):
 
 		self.update_daily_close(self.bars, dt)
 
-
 	def cross_limit_order(self) -> None:
 		"""
-		Cross limit order with last bar/tick data.
-		"""
+        Cross limit order with last bar/tick data.
+        """
 		for order in list(self.active_limit_orders.values()):
 			bar = self.bars[order.vt_symbol]
 
@@ -262,21 +262,17 @@ class OptionBacktestingEngine(BacktestingEngine):
 			self.strategy.update_trade(trade)
 			self.trades[trade.vt_tradeid] = trade
 
-class BacktestingEngine:
-    def new_bars(self, dt: datetime) -> None:
-        """"""
-        self.datetime = dt
 
-        self.bars.clear()
-        for vt_symbol in self.vt_symbols:
-            bar = self.history_data.get((dt, vt_symbol), None)
-            if bar:
-                self.bars[vt_symbol] = bar
-            else:
-                dt_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-                self.output(f"数据缺失：{dt_str} {vt_symbol}")
+@lru_cache(maxsize=999)
+def load_bar_data(
+		vt_symbol: str,
+		interval: Interval,
+		start: datetime,
+		end: datetime
+):
+	""""""
+	symbol, exchange = extract_vt_symbol(vt_symbol)
 
-        self.cross_limit_order()
-        self.strategy.on_bars(self.bars)
-
-        self.update_daily_close(self.bars, dt)
+	return database_manager.load_bar_data(
+		symbol, exchange, interval, start, end
+	)
