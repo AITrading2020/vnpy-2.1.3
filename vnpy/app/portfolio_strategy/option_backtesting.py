@@ -5,7 +5,7 @@ from functools import lru_cache
 import traceback
 import pandas as pd
 import re
-from .option_data import OptionDataImport, DataImport
+from .option_data import DataImport
 
 import numpy as np
 import matplotlib.pyplot as plt
