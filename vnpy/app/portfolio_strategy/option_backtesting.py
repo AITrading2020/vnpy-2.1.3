@@ -5,8 +5,7 @@ from functools import lru_cache
 import traceback
 import pandas as pd
 import re
-from .data_import import DataImport
-#from option_check import OptionCheck
+from .option_data import DataImport
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -25,254 +24,289 @@ from .backtesting import BacktestingEngine, ContractDailyResult, PortfolioDailyR
 sns.set_style("whitegrid")
 
 INTERVAL_DELTA_MAP = {
-    Interval.MINUTE: timedelta(minutes=1),
-    Interval.HOUR: timedelta(hours=1),
-    Interval.DAILY: timedelta(days=1),
+	Interval.MINUTE: timedelta(minutes=1),
+	Interval.HOUR: timedelta(hours=1),
+	Interval.DAILY: timedelta(days=1),
 }
 
 
 class OptionBacktestingEngine(BacktestingEngine):
-    """"""
+	""""""
 
-    gateway_name = "OPTION_BACKTESTING"
+	gateway_name = "OPTION_BACKTESTING"
 
-    def __init__(self, exchange_days, posit, rate, slippage, size, pricetick):
-        """"""
-        super().__init__()
-        self.posit = posit
+	def __init__(self, underlying, exchange_days, posit, rate, slippage, size, pricetick):
+		""""""
+		super().__init__()
+		self.posit = posit
 
-        self.rate = rate
-        self.slippage = slippage
-        self.size = size
-        self.pricetick = pricetick
-        self.pre_opt_symbols = []
-        self.opt_info = DataImport(exchange_days)
-        self.pre_opt_symbols = []
-        self.opt_info = DataImport(exchange_days)
+		option_exchange_dict = {
+			"510050": "SHFE", "510300": "SHFE",
+			"CU": "SHFE", "AU": "SHFE", "RU": "SHFE",
+			"C": "DCE", "M": "DCE", "I": "DCE", "PG": "DCE",
+			"MA": "CFFEX", "CF": "CFFEX", "RM": "CFFEX", "SR": "CFFEX", "TA": "CFFEX"
+		}
 
-    def load_data(self) -> None:
-        """"""
-        self.output("开始加载历史数据")
+		self.rate = rate
+		self.slippage = slippage
+		self.size = size
+		self.pricetick = pricetick
+		self.pre_opt_symbols = []
+		self.underlying = underlying
+		self.option_exchange = option_exchange_dict[underlying]
+		# self.opt_info = OptionDataImport(exchange_days, underlying)
+		self.opt_info = DataImport(exchange_days, underlying)
 
-        if not self.end:
-            self.end = datetime.now()
+	def set_parameters(
+		self,
+		vt_symbols: List[str],
+		interval: Interval,
+		start: datetime,
+		rates: Dict[str, float],
+		slippages: Dict[str, float],
+		sizes: Dict[str, float],
+		priceticks: Dict[str, float],
+		capital: int = 0,
+		end: datetime = None
+	) -> None:
+		""""""
+		self.vt_symbols = vt_symbols
+		self.interval = interval
 
-        if self.start >= self.end:
-            self.output("起始日期必须小于结束日期")
-            return
+		self.rates = rates
+		self.slippages = slippages
+		self.sizes = sizes
+		self.priceticks = priceticks
 
-        # Clear previously loaded history data
-        self.history_data.clear()
-        self.dts.clear()
+		self.start = start
+		self.end = end
+		self.capital = capital
 
-        # Load 30 days of data each time and allow for progress update
-        progress_delta = timedelta(days=30)
-        total_delta = self.end - self.start
-        interval_delta = INTERVAL_DELTA_MAP[self.interval]
+		# add basic vt symbols
+		self.basic_vt_symbols = vt_symbols
 
-        for vt_symbol in self.vt_symbols:
-            start = self.start
-            end = self.start + progress_delta
-            progress = 0
+	# override the load_data() in backtesting
+	def load_data(self) -> None:
+		""""""
+		self.output("开始加载历史数据")
 
-            data_count = 0
-            while start < self.end:
-                end = min(end, self.end)  # Make sure end time stays within set range
+		if not self.end:
+			self.end = datetime.now()
 
-                data = load_bar_data(
-                    vt_symbol,
-                    self.interval,
-                    start,
-                    end
-                )
+		if self.start >= self.end:
+			self.output("起始日期必须小于结束日期")
+			return
 
-                for bar in data:
-                    self.dts.add(bar.datetime)
-                    self.history_data[(bar.datetime, vt_symbol)] = bar
-                    data_count += 1
+		# Clear previously loaded history data
+		self.history_data.clear()
+		self.dts.clear()
 
-                progress += progress_delta / total_delta
-                progress = min(progress, 1)
-                # progress_bar = "#" * int(progress * 10)
-                # self.output(f"{vt_symbol}加载进度：{progress_bar} [{progress:.0%}]")
+		# Load 30 days of data each time and allow for progress update
+		progress_delta = timedelta(days=30)
+		total_delta = self.end - self.start
+		interval_delta = INTERVAL_DELTA_MAP[self.interval]
 
-                start = end + interval_delta
-                end += (progress_delta + interval_delta)
+		for vt_symbol in self.vt_symbols:
+			start = self.start
+			end = self.start + progress_delta
+			progress = 0
 
-            self.output(f"{vt_symbol}历史数据加载完成，数据量：{data_count}")
+			data_count = 0
+			while start < self.end:
+				end = min(end, self.end)  # Make sure end time stays within set range
 
-        self.output("所有历史数据加载完成")
+				data = load_bar_data(
+					vt_symbol,
+					self.interval,
+					start,
+					end
+				)
 
-# load option data on_bars() function
-    def load_data_new_bars(self, opt_symbols):
-        self.output("开始加载历史数据")
+				for bar in data:
+					self.dts.add(bar.datetime)
+					self.history_data[(bar.datetime, vt_symbol)] = bar
+					data_count += 1
 
-        if not self.end:
-            self.end = datetime.now()
+				progress += progress_delta / total_delta
+				progress = min(progress, 1)
+				# progress_bar = "#" * int(progress * 10)
+				# self.output(f"{vt_symbol}加载进度：{progress_bar} [{progress:.0%}]")
 
-        if self.start >= self.end:
-            self.output("起始日期必须小于结束日期")
-            return
+				start = end + interval_delta
+				end += (progress_delta + interval_delta)
 
-        # Clear previously loaded history data
-        #self.history_data.clear()
-        #self.dts.clear()
+			self.output(f"{vt_symbol}历史数据加载完成，数据量：{data_count}")
 
-        # Load 30 days of data each time and allow for progress update
-        progress_delta = timedelta(days=30)
-        total_delta = self.end - self.start
-        interval_delta = INTERVAL_DELTA_MAP[self.interval]
+		self.output("所有历史数据加载完成")
 
-        for vt_symbol in opt_symbols:
-            start = self.start
-            end = self.start + progress_delta
-            progress = 0
+	# load option data on_bars() function
+	def load_data_new_bars(self, opt_symbols):
+		self.output("开始加载历史数据")
 
-            data_count = 0
-            while start < self.end:
-                end = min(end, self.end)  # Make sure end time stays within set range
+		if not self.end:
+			self.end = datetime.now()
 
-                data = load_bar_data(
-                    vt_symbol,
-                    self.interval,
-                    start,
-                    end
-                )
+		if self.start >= self.end:
+			self.output("起始日期必须小于结束日期")
+			return
 
-                for bar in data:
-                    self.dts.add(bar.datetime)
-                    self.history_data[(bar.datetime, vt_symbol)] = bar
-                    data_count += 1
+		# Clear previously loaded history data
+		# self.history_data.clear()
+		# self.dts.clear()
 
-                progress += progress_delta / total_delta
-                progress = min(progress, 1)
-                # progress_bar = "#" * int(progress * 10)
-                # self.output(f"{vt_symbol}加载进度：{progress_bar} [{progress:.0%}]")
+		# Load 30 days of data each time and allow for progress update
+		progress_delta = timedelta(days=30)
+		total_delta = self.end - self.start
+		interval_delta = INTERVAL_DELTA_MAP[self.interval]
 
-                start = end + interval_delta
-                end += (progress_delta + interval_delta)
+		for vt_symbol in opt_symbols:
+			start = self.start
+			end = self.start + progress_delta
+			progress = 0
 
-            self.output(f"{vt_symbol}历史数据加载完成，数据量：{data_count}")
+			data_count = 0
+			while start < self.end:
+				end = min(end, self.end)  # Make sure end time stays within set range
 
-            self.output("所有历史数据加载完成")
+				data = load_bar_data(
+					vt_symbol,
+					self.interval,
+					start,
+					end
+				)
 
-    def new_bars(self, dt: datetime) -> None:
-        """"""
-        self.datetime = dt
+				for bar in data:
+					self.dts.add(bar.datetime)
+					self.history_data[(bar.datetime, vt_symbol)] = bar
+					data_count += 1
 
-        self.bars.clear()
+				progress += progress_delta / total_delta
+				progress = min(progress, 1)
+				# progress_bar = "#" * int(progress * 10)
+				# self.output(f"{vt_symbol}加载进度：{progress_bar} [{progress:.0%}]")
 
-        date = pd.to_datetime(str(dt)[:10])
-        tradable_opt, _ = self.opt_info.available_opt(date, self.posit)
-        call_symbol = str(tradable_opt[tradable_opt["option_type"] == "C"]["order_book_id"].values[0]) + ".SHFE"
-        put_symbol = str(tradable_opt[tradable_opt["option_type"] == "P"]["order_book_id"].values[0]) + ".SHFE"
-        opt_symbols = [call_symbol, put_symbol]
-        new_symbols = list(set(opt_symbols) - set(self.vt_symbols))
-        if len(new_symbols) > 0:
-            for vt_symbol in new_symbols:
-                self.rates[vt_symbol] = self.rate
-                self.slippages[vt_symbol] = self.slippage
-                self.sizes[vt_symbol] = self.size
-                self.priceticks[vt_symbol] = self.pricetick
-            self.vt_symbols = self.vt_symbols + new_symbols
-            self.load_data_new_bars(new_symbols)
-        opt_data = DataImport(0)
-        exsit_opt = opt_data.get_opt_info(date)
-        trade_symbols = [trade.vt_symbol for trade in self.trades.values()] + opt_symbols + self.pre_opt_symbols
-        # exist_symbols = list(set(trade_symbols).intersection(set(list(exsit_opt["order_book_id"].apply(lambda x: str(x) + ".SHFE").values))))
-        exist_symbols = list(set(self.vt_symbols).intersection(
-            set(list(exsit_opt["order_book_id"].apply(lambda x: str(x) + ".SHFE").values))))
-        exist_symbols.append("510050.SSE")
-        for vt_symbol in exist_symbols:
-            bar = self.history_data.get((dt, vt_symbol), None)
-            if bar:
-                self.bars[vt_symbol] = bar
-            else:
-                dt_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-                self.output(f"数据缺失：{dt_str} {vt_symbol}")
+				start = end + interval_delta
+				end += (progress_delta + interval_delta)
 
-        self.pre_opt_symbols = opt_symbols
-        self.cross_limit_order()
-        self.strategy.on_bars(self.bars)
+			self.output(f"{vt_symbol}历史数据加载完成，数据量：{data_count}")
 
-        self.update_daily_close(self.bars, dt)
+	def new_bars(self, dt: datetime) -> None:
+		""""""
+		self.datetime = dt
 
-    def cross_limit_order(self) -> None:
-        """
-        Cross limit order with last bar/tick data.
-        """
-        for order in list(self.active_limit_orders.values()):
-            bar = self.bars[order.vt_symbol]
+		self.bars.clear()
 
-            long_cross_price = bar.low_price
-            short_cross_price = bar.high_price
-            long_best_price = bar.open_price
-            short_best_price = bar.open_price
+		date = pd.to_datetime(str(dt)[:10])
+		tradable_opt, ttm = self.opt_info.available_opt(date, self.posit)
+		call_symbol = str(tradable_opt[tradable_opt["option_type"] == "C"]["order_book_id"].values[0]) + "." + self.option_exchange
+		put_symbol = str(tradable_opt[tradable_opt["option_type"] == "P"]["order_book_id"].values[0]) + "." + self.option_exchange
+		opt_symbols = [call_symbol, put_symbol]
+		new_symbols = list(set(opt_symbols) - set(self.vt_symbols))
+		if len(new_symbols) > 0:
+			for vt_symbol in new_symbols:
+				self.rates[vt_symbol] = self.rate
+				self.slippages[vt_symbol] = self.slippage
+				self.sizes[vt_symbol] = self.size
+				self.priceticks[vt_symbol] = self.pricetick
+			self.vt_symbols = self.vt_symbols + new_symbols
+			self.load_data_new_bars(new_symbols)
+		opt_data = DataImport(0, self.underlying)
+		exsit_opt = opt_data.get_opt_info(date)
+		trade_symbols = [trade.vt_symbol for trade in self.trades.values()] + opt_symbols + self.pre_opt_symbols
+		exist_symbols = list(set(self.vt_symbols).intersection(
+			set(list(exsit_opt["order_book_id"].apply(lambda x: str(x) + "." + self.option_exchange).values))))
+		exist_symbols = exist_symbols + self.basic_vt_symbols
+		# print(exist_symbols)
+		for vt_symbol in exist_symbols:
+			bar = self.history_data.get((dt, vt_symbol), None)
+			if bar:
+				self.bars[vt_symbol] = bar
+			else:
+				dt_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+				self.output(f"数据缺失：{dt_str} {vt_symbol}")
 
-            # Push order update with status "not traded" (pending).
-            if order.status == Status.SUBMITTING:
-                order.status = Status.NOTTRADED
-                self.strategy.update_order(order)
+		self.pre_opt_symbols = opt_symbols
+		self.cross_limit_order()
+		self.strategy.on_bars(self.bars, tradable_opt, ttm, self.option_exchange)
 
-            # Check whether limit orders can be filled.
-            long_cross = (
-                    order.direction == Direction.LONG
-                    and order.price >= long_cross_price
-                    and long_cross_price > 0
-            )
+		self.update_daily_close(self.bars, dt)
 
-            short_cross = (
-                    order.direction == Direction.SHORT
-                    and order.price <= short_cross_price
-                    and short_cross_price > 0
-            )
+	def cross_limit_order(self) -> None:
+		"""
+		Cross limit order with last bar/tick data.
+		"""
+		for order in list(self.active_limit_orders.values()):
+			bar = self.bars[order.vt_symbol]
 
-            if not long_cross and not short_cross:
-                continue
+			long_cross_price = bar.low_price
+			short_cross_price = bar.high_price
+			long_best_price = bar.open_price
+			short_best_price = bar.open_price
 
-            # Push order update with status "all traded" (filled).
-            order.traded = order.volume
-            order.status = Status.ALLTRADED
-            self.strategy.update_order(order)
+			# Push order update with status "not traded" (pending).
+			if order.status == Status.SUBMITTING:
+				order.status = Status.NOTTRADED
+				self.strategy.update_order(order)
 
-            self.active_limit_orders.pop(order.vt_orderid)
+			# Check whether limit orders can be filled.
+			long_cross = (
+					order.direction == Direction.LONG
+					and order.price >= long_cross_price
+					and long_cross_price > 0
+			)
 
-            # Push trade update
-            self.trade_count += 1
+			short_cross = (
+					order.direction == Direction.SHORT
+					and order.price <= short_cross_price
+					and short_cross_price > 0
+			)
 
-            if long_cross:
-                trade_price = min(order.price, long_best_price)
-            else:
-                trade_price = max(order.price, short_best_price)
+			if not long_cross and not short_cross:
+				continue
 
-            trade = TradeData(
-                symbol=order.symbol,
-                exchange=order.exchange,
-                orderid=order.orderid,
-                tradeid=str(self.trade_count),
-                direction=order.direction,
-                offset=order.offset,
-                price=trade_price,
-                volume=order.volume,
-                datetime=self.datetime,
-                gateway_name=self.gateway_name,
-            )
-            trade.datetime = self.datetime
+			# Push order update with status "all traded" (filled).
+			order.traded = order.volume
+			order.status = Status.ALLTRADED
+			self.strategy.update_order(order)
 
-            self.strategy.update_trade(trade)
-            self.trades[trade.vt_tradeid] = trade
+			self.active_limit_orders.pop(order.vt_orderid)
+
+			# Push trade update
+			self.trade_count += 1
+
+			if long_cross:
+				trade_price = min(order.price, long_best_price)
+			else:
+				trade_price = max(order.price, short_best_price)
+
+			trade = TradeData(
+				symbol=order.symbol,
+				exchange=order.exchange,
+				orderid=order.orderid,
+				tradeid=str(self.trade_count),
+				direction=order.direction,
+				offset=order.offset,
+				price=trade_price,
+				volume=order.volume,
+				datetime=self.datetime,
+				gateway_name=self.gateway_name,
+			)
+			trade.datetime = self.datetime
+
+			self.strategy.update_trade(trade)
+			self.trades[trade.vt_tradeid] = trade
 
 
 @lru_cache(maxsize=999)
 def load_bar_data(
-        vt_symbol: str,
-        interval: Interval,
-        start: datetime,
-        end: datetime
+		vt_symbol: str,
+		interval: Interval,
+		start: datetime,
+		end: datetime
 ):
-    """"""
-    symbol, exchange = extract_vt_symbol(vt_symbol)
+	""""""
+	symbol, exchange = extract_vt_symbol(vt_symbol)
 
-    return database_manager.load_bar_data(
-        symbol, exchange, interval, start, end
-    )
+	return database_manager.load_bar_data(
+		symbol, exchange, interval, start, end
+	)
