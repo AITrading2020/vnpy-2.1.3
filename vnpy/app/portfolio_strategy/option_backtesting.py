@@ -59,6 +59,7 @@ class OptionBacktestingEngine(BacktestingEngine):
 
 		self.opt_info = DataImport(exchange_days, underlying, self.base_dir)
 		self.columns = columns
+		database_manager.set_columns(self.columns)
 
 	def set_parameters(
 		self,

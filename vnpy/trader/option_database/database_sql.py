@@ -90,7 +90,7 @@ def init_models(db: Database, driver: Driver):
             indexes = ((("symbol", "exchange", "interval", "datetime"), True),)
 
         @staticmethod
-        def from_bar(bar: BarData):
+        def from_bar(bar: BarData, columns=None):
             """
             Generate DbBarData object from BarData.
             """
@@ -106,6 +106,10 @@ def init_models(db: Database, driver: Driver):
             db_bar.high_price = bar.high_price
             db_bar.low_price = bar.low_price
             db_bar.close_price = bar.close_price
+            if columns:
+                for i in columns:
+                    expr = "db_bar.{} = bar.{}".format(i, i)
+                    exec(expr)
 
             return db_bar
 
@@ -337,6 +341,16 @@ class SqlManager(BaseDatabaseManager):
         self.class_bar = class_bar
         self.class_tick = class_tick
 
+    def set_columns(self, columns=None):
+        self.db_columns = [self.class_bar.symbol, self.class_bar.exchange, self.class_bar.interval,
+                           self.class_bar.datetime, self.class_bar.volume, self.class_bar.open_price,
+                           self.class_bar.close_price, self.class_bar.high_price, self.class_bar.low_price,
+                           self.class_bar.open_interest]
+        if columns:
+            self.db_columns += [getattr(self.class_bar, i) for i in columns]
+        else:
+            pass
+
     def load_bar_data(
             self,
             symbol: str,
@@ -347,7 +361,7 @@ class SqlManager(BaseDatabaseManager):
             columns=None,
     ) -> Sequence[BarData]:
         s = (
-            self.class_bar.select()
+            self.class_bar.select(*self.db_columns)
                 .where(
                 (self.class_bar.symbol == symbol)
                 & (self.class_bar.exchange == exchange.value)
