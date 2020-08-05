@@ -210,6 +210,14 @@ class StrategyTemplate(ABC):
         for vt_orderid in list(self.active_orderids):
             self.cancel_order(vt_orderid)
 
+    def get_pos_symbol(self) -> List:
+        """"""
+        active_vt_symbols = []
+        for vt_symbol in self.pos.keys():
+            if (self.pos[vt_symbol] != 0):
+                active_vt_symbols.append(vt_symbol)
+        return active_vt_symbols
+
     def get_pos(self, vt_symbol: str) -> int:
         """"""
         return self.pos.get(vt_symbol, 0)
