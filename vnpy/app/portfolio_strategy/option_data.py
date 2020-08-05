@@ -1,12 +1,25 @@
 import numpy as np
 import pandas as pd
 import re
+from datetime import timedelta
 
 
-class OptionDataImport:   
-    def __init__(self, days):
-            self.d = days
-            
+class DataImport:
+
+    def __init__(self, days, underlying_symbol, base_dir):
+
+        self.d = days
+        self.base_dir = base_dir
+        if underlying_symbol.startswith("510"):
+            underlying_symbol = underlying_symbol + ".XSHG"
+        self.underlying_symbol = underlying_symbol
+        self.underlying_dict = {
+            "510050": "510050", "510300": "510300",
+            "CU": "CU889", "AU": "AU889", "RU": "RU99",
+            "C": "C889", "M": "M889", "I": "I889", "PG": "PG889",
+            "MA": "MA99", "CF": "CF99", "RM": "RM99", "SR": "SR99", "TA": "TA99"
+        }
+
     def opt_adjust(self, x):
         if re.search('A', x):
             return 1
@@ -14,8 +27,8 @@ class OptionDataImport:
             return 0
 
     def get_all_opt_info(self):
-        base_dir = 'F:/NUS/NExT++/My Work/option_data/'
-        opt_contract_info = pd.read_csv(base_dir + "option_contract_info.csv")
+        opt_contract_info = pd.read_csv(self.base_dir + "opt_contract_info.csv")
+        opt_contract_info = opt_contract_info[opt_contract_info["underlying_symbol"] == self.underlying_symbol]
         opt_contract_info = opt_contract_info[opt_contract_info.columns[2:-4]].set_index('symbol')
         return opt_contract_info
 
@@ -23,13 +36,137 @@ class OptionDataImport:
         opt_contract_info = self.get_all_opt_info()
         opt_contract_info.listed_date = pd.to_datetime(opt_contract_info.listed_date)
         opt_contract_info.de_listed_date = pd.to_datetime(opt_contract_info.de_listed_date)
-        opt_contract_info['adjust'] = opt_contract_info['product_name'].apply(lambda x: self.opt_adjust(x))
-        exist_opt = opt_contract_info[(opt_contract_info['listed_date'] <= date) & (opt_contract_info['de_listed_date'] >= date)]
+        if self.underlying_symbol.startswith("510"):
+            opt_contract_info['adjust'] = opt_contract_info['product_name'].apply(lambda x: self.opt_adjust(x))
+        exist_opt = opt_contract_info[
+            (opt_contract_info['listed_date'] <= date) & (opt_contract_info['de_listed_date'] >= date)]
         return exist_opt
 
+    def get_underlying(self):
+        underlying_dir = self.underlying_symbol.split(".")[0]
+        current_dir = self.base_dir + underlying_dir + "/"
+        if not underlying_dir.startswith("510"):
+            underlying_fn = self.underlying_dict[underlying_dir]
+        else:
+            underlying_fn = underlying_dir
+        underlying_info = pd.read_csv(current_dir + underlying_fn + ".csv", index_col=0)
+        underlying_info.index = pd.to_datetime(underlying_info.index)
+        return underlying_info
+
+    def get_none_adjust_opt(self, date):
+        exist_opt = self.get_opt_info(date)
+        a_opt_list = exist_opt[exist_opt['adjust'] == 1]['product_name'].values.tolist()
+        m_opt_list = exist_opt[exist_opt['adjust'] == 0]['product_name'].values.tolist()
+        for a_opt in a_opt_list:
+            if a_opt.replace('A', 'M') not in m_opt_list:
+                m_opt_list.append(a_opt)
+        none_adjust_opt = exist_opt[exist_opt['product_name'].isin(m_opt_list)]
+        return none_adjust_opt
+
+    def available_opt(self, date, posit):
+
+        """
+        find available options 
+        """
+        # get rid of adjusted options
+        if self.underlying_symbol.startswith("510"):
+            exist_opt = self.get_none_adjust_opt(date)
+            exist_opt['product_name'] = exist_opt['product_name'].apply(lambda x: x.replace('A', 'M'))
+            exist_opt['strike'] = exist_opt['product_name'].apply(lambda x: int(x[-4:]) / 1000)
+        else:
+            exist_opt = self.get_opt_info(date)
+            exist_opt['strike'] = exist_opt['strike_price']
+
+        # calculate strike and days-to-maturity
+        exist_opt['days'] = ((exist_opt['de_listed_date'] - date) / np.timedelta64(1, 'D')).astype(int)
+        exist_opt = exist_opt[exist_opt['days'] > self.d]
+        exist_opt = exist_opt[exist_opt['days'] == exist_opt['days'].min()]
+
+        # get ETF50 price at that date
+        underlying_info = self.get_underlying()
+        underlying_price = underlying_info[underlying_info.index == date]['open'].values[0]
+
+        # get the minimum difference between strike and ETF50 price
+        opt_c, opt_p = [], []
+        # OTM
+        if posit > 0:
+            for d, f in exist_opt.groupby('days'):
+                f['diff'] = f['strike'].apply(lambda x: x - underlying_price)
+                f['abs_diff'] = abs(f['diff'])
+                f_c = f[(f['option_type'] == 'C') & (f['diff'] >= 0)]
+                f_p = f[(f['option_type'] == 'P') & (f['diff'] <= 0)]
+                if f_c.empty:
+                    opt_c = opt_c + f[(f['option_type'] == 'C') & (f['abs_diff'] == min(f['abs_diff']))][
+                        'product_name'].values.tolist()
+                elif f_c.shape[0] < posit:
+                    c_abs_diff = max(f_c['abs_diff'].values)
+                    opt_c = opt_c + f_c[f_c['abs_diff'] == c_abs_diff]['product_name'].values.tolist()
+                else:
+                    c_abs_diff = sorted(f_c['abs_diff'].values)[posit - 1]
+                    opt_c = opt_c + f_c[f_c['abs_diff'] == c_abs_diff]['product_name'].values.tolist()
+                if f_p.empty:
+                    opt_p = opt_p + f[(f['option_type'] == 'P') & (f['abs_diff'] == min(f['abs_diff']))][
+                        'product_name'].values.tolist()
+                elif f_p.shape[0] < posit:
+                    p_abs_diff = max(f_p['abs_diff'].values)
+                    opt_p = opt_p + f_p[f_p['abs_diff'] == p_abs_diff]['product_name'].values.tolist()
+                else:
+                    p_abs_diff = sorted(f_p['abs_diff'].values)[posit - 1]
+                    opt_p = opt_p + f_p[f_p['abs_diff'] == p_abs_diff]['product_name'].values.tolist()
+        # ITM
+        else:
+            for d, f in exist_opt.groupby('days'):
+                f['diff'] = f['strike'].apply(lambda x: x - underlying_price)
+                f['abs_diff'] = abs(f['diff'])
+                f_c = f[(f['option_type'] == 'C') & (f['diff'] <= 0)]
+                f_p = f[(f['option_type'] == 'P') & (f['diff'] >= 0)]
+                if f_c.empty:
+                    opt_c = opt_c + f[(f['option_type'] == 'C') & (f['abs_diff'] == min(f['abs_diff']))][
+                        'product_name'].values.tolist()
+                elif f_c.shape[0] < -posit:
+                    c_abs_diff = max(f_c['abs_diff'].values)
+                    opt_c = opt_c + f_c[f_c['abs_diff'] == c_abs_diff]['product_name'].values.tolist()
+                else:
+                    c_abs_diff = sorted(f_c['abs_diff'].values)[-posit - 1]
+                    opt_c = opt_c + f_c[f_c['abs_diff'] == c_abs_diff]['product_name'].values.tolist()
+                if f_p.empty:
+                    opt_p = opt_p + f[(f['option_type'] == 'P') & (f['abs_diff'] == min(f['abs_diff']))][
+                        'product_name'].values.tolist()
+                elif f_p.shape[0] < -posit:
+                    p_abs_diff = max(f_p['abs_diff'].values)
+                    opt_p = opt_p + f_p[f_p['abs_diff'] == p_abs_diff]['product_name'].values.tolist()
+                else:
+                    p_abs_diff = sorted(f_p['abs_diff'].values)[-posit - 1]
+                    opt_p = opt_p + f_p[f_p['abs_diff'] == p_abs_diff]['product_name'].values.tolist()
+
+        opt = opt_c + opt_p
+        tradable_opt = exist_opt[exist_opt['product_name'].isin(opt)]
+        ttm = tradable_opt["days"].values[0]
+        return tradable_opt, ttm
+
+    def pcr_quantile(self, pcr_type, end_date, period, quantile=[50, 80]):
+        start_date = end_date - timedelta(days=int(period * 365))
+        pcr = self.etf50[(self.etf50.index >= start_date) & (self.etf50.index <= end_date)]
+
+        pcr_q = []
+        for q in quantile:
+            pcr_q.append(pcr[pcr_type].quantile(q / 100))
+
+        return pcr_q
+
+    def get_hv_quantile(self, end_date, period, window=30, quantile=[10, 90]):
+        start_date = end_date - timedelta(days=int(period * 365))
+        etf = self.etf50_p[(self.etf50_p.index >= start_date) & (self.etf50_p.index <= end_date)]
+        etf['std'] = np.sqrt(252) * etf['log_rtn'].rolling(window).std()
+
+        q_list = []
+        for q in quantile:
+            q_list.append(100 * etf['std'].quantile(q / 100))
+
+        return q_list
+
     def get_etf50(self):
-        base_dir = 'F:/NUS/NExT++/My Work/option_data/'
-        etf50 = pd.read_csv(base_dir + '510050_none.csv', index_col=0)
+        etf50 = pd.read_csv(self.base_dir + '510050_none.csv', index_col=0)
         etf50.index = pd.to_datetime(etf50.index)
         etf50 = etf50[etf50.index >= pd.to_datetime('2015-02-09')]
         return etf50
@@ -42,89 +179,6 @@ class OptionDataImport:
     def get_trade_dates(self):
         my_etf50 = self.get_etf50()
         return my_etf50.index
-
-    def get_none_adjust_opt(self, date):
-        exist_opt = self.get_opt_info(date)
-        a_opt_list = exist_opt[exist_opt['adjust'] == 1]['product_name'].values.tolist()
-        m_opt_list = exist_opt[exist_opt['adjust'] == 0]['product_name'].values.tolist()
-        for a_opt in a_opt_list:
-                if a_opt.replace('A', 'M') not in m_opt_list:
-                        m_opt_list.append(a_opt)
-        none_adjust_opt = exist_opt[exist_opt['product_name'].isin(m_opt_list)]
-        return none_adjust_opt
-
-    def available_opt(self, date, posit):
-
-        """
-        find available options 
-        """
-        # get rid of adjusted options
-        exist_opt = self.get_none_adjust_opt(date)
-
-        # calculate strike and days-to-maturity
-        exist_opt['product_name'] = exist_opt['product_name'].apply(lambda x: x.replace('A', 'M'))
-        exist_opt['strike'] = exist_opt['product_name'].apply(lambda x: int(x[-4:])/1000)
-        exist_opt['days'] = ((exist_opt['de_listed_date'] - date)/np.timedelta64(1, 'D')).astype(int)
-        exist_opt = exist_opt[exist_opt['days'] > self.d]
-        exist_opt = exist_opt[exist_opt['days'] == exist_opt['days'].min()]
-
-        # get ETF50 price at that date
-        etf50 = self.get_etf50()
-        etf50_price = etf50[etf50.index == date]['open'].values[0]
-
-        # get the minimum difference between strike and ETF50 price
-        opt_c, opt_p = [], []
-        # OTM
-        if posit > 0:
-                for d, f in exist_opt.groupby('days'):
-                    f['diff'] = f['strike'].apply(lambda x: x - etf50_price)
-                    f['abs_diff'] = abs(f['diff'])
-                    f_c = f[(f['option_type'] == 'C') & (f['diff'] >= 0)]
-                    f_p = f[(f['option_type'] == 'P') & (f['diff'] <= 0)]
-                    if f_c.empty:
-                            opt_c = opt_c + f[(f['option_type'] == 'C') & (f['abs_diff'] == min(f['abs_diff']))]['product_name'].values.tolist()
-                    elif f_c.shape[0] < posit:
-                            c_abs_diff = max(f_c['abs_diff'].values)
-                            opt_c = opt_c + f_c[f_c['abs_diff'] == c_abs_diff]['product_name'].values.tolist()
-                    else:
-                            c_abs_diff = sorted(f_c['abs_diff'].values)[posit - 1]
-                            opt_c = opt_c + f_c[f_c['abs_diff'] == c_abs_diff]['product_name'].values.tolist()
-                    if f_p.empty:
-                            opt_p = opt_p + f[(f['option_type'] == 'P') & (f['abs_diff'] == min(f['abs_diff']))]['product_name'].values.tolist()
-                    elif f_p.shape[0] < posit:
-                            p_abs_diff = max(f_p['abs_diff'].values)
-                            opt_p = opt_p + f_p[f_p['abs_diff'] == p_abs_diff]['product_name'].values.tolist()
-                    else:
-                            p_abs_diff = sorted(f_p['abs_diff'].values)[posit - 1]
-                            opt_p = opt_p + f_p[f_p['abs_diff'] == p_abs_diff]['product_name'].values.tolist()
-        # ITM
-        else:
-                for d, f in exist_opt.groupby('days'):
-                    f['diff'] = f['strike'].apply(lambda x: x - etf50_price)
-                    f['abs_diff'] = abs(f['diff'])
-                    f_c = f[(f['option_type'] == 'C') & (f['diff'] <= 0)]
-                    f_p = f[(f['option_type'] == 'P') & (f['diff'] >= 0)]
-                    if f_c.empty:
-                            opt_c = opt_c + f[(f['option_type'] == 'C') & (f['abs_diff'] == min(f['abs_diff']))]['product_name'].values.tolist()
-                    elif f_c.shape[0] < -posit:
-                            c_abs_diff = max(f_c['abs_diff'].values)
-                            opt_c = opt_c + f_c[f_c['abs_diff'] == c_abs_diff]['product_name'].values.tolist()
-                    else:
-                            c_abs_diff = sorted(f_c['abs_diff'].values)[-posit - 1]
-                            opt_c = opt_c + f_c[f_c['abs_diff'] == c_abs_diff]['product_name'].values.tolist()
-                    if f_p.empty:
-                            opt_p = opt_p + f[(f['option_type'] == 'P') & (f['abs_diff'] == min(f['abs_diff']))]['product_name'].values.tolist()
-                    elif f_p.shape[0] < -posit:
-                            p_abs_diff = max(f_p['abs_diff'].values)
-                            opt_p = opt_p + f_p[f_p['abs_diff'] == p_abs_diff]['product_name'].values.tolist()
-                    else:
-                            p_abs_diff = sorted(f_p['abs_diff'].values)[-posit - 1]
-                            opt_p = opt_p + f_p[f_p['abs_diff'] == p_abs_diff]['product_name'].values.tolist()
-
-        opt = opt_c + opt_p
-        tradable_opt = exist_opt[exist_opt['product_name'].isin(opt)]
-        ttm = tradable_opt["days"].values[0]
-        return tradable_opt, ttm
 
     def get_strategy_data(self):
         etf50 = pd.read_csv(self.base_dir + '510050_none.csv', index_col=0)
@@ -197,143 +251,6 @@ class OptionDataImport:
         pcr_tt['rate'] = pcr_tt['total_turnover'] / pcr_tt['total_turnover'].shift()
         etf50['tt_rate'] = pcr_tt['rate']
 
-        self.etf50=etf50
-        self.etf50_p=etf50_p
-        self.vix=vix
-
-
-
-class DataImport:
-
-    def __init__(self, days, underlying_symbol):
-
-        self.d = days
-        if underlying_symbol.startswith("510"):
-            underlying_symbol = underlying_symbol + ".XSHG"
-        self.underlying_symbol = underlying_symbol
-        self.underlying_dict = {
-            "510050": "510050", "510300": "510300",
-            "CU": "CU889", "AU": "AU889", "RU": "RU99",
-            "C": "C889", "M": "M889", "I": "I889", "PG": "PG889",
-            "MA": "MA99", "CF": "CF99", "RM": "RM99", "SR": "SR99", "TA": "TA99"
-        }
-
-    def opt_adjust(self, x):
-        if re.search('A', x):
-            return 1
-        else:
-            return 0
-
-    def get_all_opt_info(self):
-        base_dir = 'F:/NUS/NExT++/My Work/option_data/'
-        opt_contract_info = pd.read_csv(base_dir + "opt_contract_info.csv")
-        opt_contract_info = opt_contract_info[opt_contract_info["underlying_symbol"] == self.underlying_symbol]
-        opt_contract_info = opt_contract_info[opt_contract_info.columns[2:-4]].set_index('symbol')
-        return opt_contract_info
-
-    def get_opt_info(self, date):
-        opt_contract_info = self.get_all_opt_info()
-        opt_contract_info.listed_date = pd.to_datetime(opt_contract_info.listed_date)
-        opt_contract_info.de_listed_date = pd.to_datetime(opt_contract_info.de_listed_date)
-        if self.underlying_symbol.startswith("510"):
-            opt_contract_info['adjust'] = opt_contract_info['product_name'].apply(lambda x: self.opt_adjust(x))
-        exist_opt = opt_contract_info[(opt_contract_info['listed_date'] <= date) & (opt_contract_info['de_listed_date'] >= date)]
-        return exist_opt
-
-    def get_underlying(self):
-        underlying_dir = self.underlying_symbol.split(".")[0]
-        base_dir = 'F:/NUS/NExT++/My Work/option_data/' + underlying_dir + "/"
-        if not underlying_dir.startswith("510"):
-            underlying_fn = self.underlying_dict[underlying_dir]
-        else:
-            underlying_fn = underlying_dir
-        underlying_info = pd.read_csv(base_dir + underlying_fn + ".csv", index_col=0)
-        underlying_info.index = pd.to_datetime(underlying_info.index)
-        return underlying_info
-
-    def get_none_adjust_opt(self, date):
-        exist_opt = self.get_opt_info(date)
-        a_opt_list = exist_opt[exist_opt['adjust'] == 1]['product_name'].values.tolist()
-        m_opt_list = exist_opt[exist_opt['adjust'] == 0]['product_name'].values.tolist()
-        for a_opt in a_opt_list:
-            if a_opt.replace('A', 'M') not in m_opt_list:
-                m_opt_list.append(a_opt)
-        none_adjust_opt = exist_opt[exist_opt['product_name'].isin(m_opt_list)]
-        return none_adjust_opt
-
-    def available_opt(self, date, posit):
-
-        """
-        find available options 
-        """
-        # get rid of adjusted options
-        if self.underlying_symbol.startswith("510"):
-            exist_opt = self.get_none_adjust_opt(date)
-            exist_opt['product_name'] = exist_opt['product_name'].apply(lambda x: x.replace('A', 'M'))
-            exist_opt['strike'] = exist_opt['product_name'].apply(lambda x: int(x[-4:])/1000)
-        else:
-            exist_opt = self.get_opt_info(date)
-            exist_opt['strike'] = exist_opt['strike_price']
-
-        # calculate strike and days-to-maturity
-        exist_opt['days'] = ((exist_opt['de_listed_date'] - date)/np.timedelta64(1, 'D')).astype(int)
-        exist_opt = exist_opt[exist_opt['days'] > self.d]
-        exist_opt = exist_opt[exist_opt['days'] == exist_opt['days'].min()]
-
-        # get ETF50 price at that date
-        underlying_info = self.get_underlying()
-        underlying_price = underlying_info[underlying_info.index == date]['open'].values[0]
-
-        # get the minimum difference between strike and ETF50 price
-        opt_c, opt_p = [], []
-        # OTM
-        if posit > 0:
-            for d, f in exist_opt.groupby('days'):
-                f['diff'] = f['strike'].apply(lambda x: x - underlying_price)
-                f['abs_diff'] = abs(f['diff'])
-                f_c = f[(f['option_type'] == 'C') & (f['diff'] >= 0)]
-                f_p = f[(f['option_type'] == 'P') & (f['diff'] <= 0)]
-                if f_c.empty:
-                    opt_c = opt_c + f[(f['option_type'] == 'C') & (f['abs_diff'] == min(f['abs_diff']))]['product_name'].values.tolist()
-                elif f_c.shape[0] < posit:
-                    c_abs_diff = max(f_c['abs_diff'].values)
-                    opt_c = opt_c + f_c[f_c['abs_diff'] == c_abs_diff]['product_name'].values.tolist()
-                else:
-                    c_abs_diff = sorted(f_c['abs_diff'].values)[posit - 1]
-                    opt_c = opt_c + f_c[f_c['abs_diff'] == c_abs_diff]['product_name'].values.tolist()
-                if f_p.empty:
-                    opt_p = opt_p + f[(f['option_type'] == 'P') & (f['abs_diff'] == min(f['abs_diff']))]['product_name'].values.tolist()
-                elif f_p.shape[0] < posit:
-                    p_abs_diff = max(f_p['abs_diff'].values)
-                    opt_p = opt_p + f_p[f_p['abs_diff'] == p_abs_diff]['product_name'].values.tolist()
-                else:
-                    p_abs_diff = sorted(f_p['abs_diff'].values)[posit - 1]
-                    opt_p = opt_p + f_p[f_p['abs_diff'] == p_abs_diff]['product_name'].values.tolist()
-        # ITM
-        else:
-            for d, f in exist_opt.groupby('days'):
-                f['diff'] = f['strike'].apply(lambda x: x - underlying_price)
-                f['abs_diff'] = abs(f['diff'])
-                f_c = f[(f['option_type'] == 'C') & (f['diff'] <= 0)]
-                f_p = f[(f['option_type'] == 'P') & (f['diff'] >= 0)]
-                if f_c.empty:
-                    opt_c = opt_c + f[(f['option_type'] == 'C') & (f['abs_diff'] == min(f['abs_diff']))]['product_name'].values.tolist()
-                elif f_c.shape[0] < -posit:
-                    c_abs_diff = max(f_c['abs_diff'].values)
-                    opt_c = opt_c + f_c[f_c['abs_diff'] == c_abs_diff]['product_name'].values.tolist()
-                else:
-                    c_abs_diff = sorted(f_c['abs_diff'].values)[-posit - 1]
-                    opt_c = opt_c + f_c[f_c['abs_diff'] == c_abs_diff]['product_name'].values.tolist()
-                if f_p.empty:
-                    opt_p = opt_p + f[(f['option_type'] == 'P') & (f['abs_diff'] == min(f['abs_diff']))]['product_name'].values.tolist()
-                elif f_p.shape[0] < -posit:
-                    p_abs_diff = max(f_p['abs_diff'].values)
-                    opt_p = opt_p + f_p[f_p['abs_diff'] == p_abs_diff]['product_name'].values.tolist()
-                else:
-                    p_abs_diff = sorted(f_p['abs_diff'].values)[-posit - 1]
-                    opt_p = opt_p + f_p[f_p['abs_diff'] == p_abs_diff]['product_name'].values.tolist()
-
-        opt = opt_c + opt_p
-        tradable_opt = exist_opt[exist_opt['product_name'].isin(opt)]
-        ttm = tradable_opt["days"].values[0]
-        return tradable_opt, ttm
+        self.etf50 = etf50
+        self.etf50_p = etf50_p
+        self.vix = vix

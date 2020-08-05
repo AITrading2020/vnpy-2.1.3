@@ -98,6 +98,12 @@ class BarData(BaseData):
         """"""
         self.vt_symbol = f"{self.symbol}.{self.exchange.value}"
 
+    def add_attr(self, attrs: dict = None):
+        if attrs:
+            for k, v in attrs.items():
+                expr = "self." + k + "=" + v
+                exec(expr)
+
 
 @dataclass
 class OrderData(BaseData):
