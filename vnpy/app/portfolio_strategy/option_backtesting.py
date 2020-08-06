@@ -5,6 +5,7 @@ from functools import lru_cache
 import traceback
 import pandas as pd
 import re
+import os
 from .option_data import DataImport
 
 import numpy as np
@@ -13,9 +14,9 @@ import seaborn as sns
 from pandas import DataFrame
 
 from vnpy.trader.constant import Direction, Offset, Interval, Status
-from vnpy.trader.database import database_manager
-from vnpy.trader.object import OrderData, TradeData, BarData
-from vnpy.trader.utility import round_to, extract_vt_symbol
+from vnpy.trader.option_database import database_manager
+from vnpy.trader.option_object import OrderData, TradeData, BarData
+from vnpy.trader.option_utility import round_to, extract_vt_symbol
 
 from .template import StrategyTemplate
 from .backtesting import BacktestingEngine, ContractDailyResult, PortfolioDailyResult
@@ -35,7 +36,7 @@ class OptionBacktestingEngine(BacktestingEngine):
 
 	gateway_name = "OPTION_BACKTESTING"
 
-	def __init__(self, underlying, exchange_days, posit, rate, slippage, size, pricetick):
+	def __init__(self, underlying, exchange_days, posit, rate, slippage, size, pricetick, base_dir, columns=None):
 		""""""
 		super().__init__()
 		self.posit = posit
@@ -54,8 +55,11 @@ class OptionBacktestingEngine(BacktestingEngine):
 		self.pre_opt_symbols = []
 		self.underlying = underlying
 		self.option_exchange = option_exchange_dict[underlying]
-		# self.opt_info = OptionDataImport(exchange_days, underlying)
-		self.opt_info = DataImport(exchange_days, underlying)
+		self.base_dir = base_dir
+
+		self.opt_info = DataImport(exchange_days, underlying, self.base_dir)
+		self.columns = columns
+		database_manager.set_columns(self.columns)
 
 	def set_parameters(
 		self,
@@ -119,7 +123,8 @@ class OptionBacktestingEngine(BacktestingEngine):
 					vt_symbol,
 					self.interval,
 					start,
-					end
+					end,
+					self.columns,
 				)
 
 				for bar in data:
@@ -141,7 +146,7 @@ class OptionBacktestingEngine(BacktestingEngine):
 
 	# load option data on_bars() function
 	def load_data_new_bars(self, opt_symbols):
-		self.output("开始加载历史数据")
+		self.output("load_data_new_bars开始加载历史数据")
 
 		if not self.end:
 			self.end = datetime.now()
@@ -172,7 +177,8 @@ class OptionBacktestingEngine(BacktestingEngine):
 					vt_symbol,
 					self.interval,
 					start,
-					end
+					end,
+					self.columns,
 				)
 
 				for bar in data:
@@ -210,7 +216,7 @@ class OptionBacktestingEngine(BacktestingEngine):
 				self.priceticks[vt_symbol] = self.pricetick
 			self.vt_symbols = self.vt_symbols + new_symbols
 			self.load_data_new_bars(new_symbols)
-		opt_data = DataImport(0, self.underlying)
+		opt_data = DataImport(0, self.underlying, self.base_dir)
 		exsit_opt = opt_data.get_opt_info(date)
 		trade_symbols = [trade.vt_symbol for trade in self.trades.values()] + opt_symbols + self.pre_opt_symbols
 		exist_symbols = list(set(self.vt_symbols).intersection(
@@ -302,11 +308,12 @@ def load_bar_data(
 		vt_symbol: str,
 		interval: Interval,
 		start: datetime,
-		end: datetime
+		end: datetime,
+		columns=None,
 ):
 	""""""
 	symbol, exchange = extract_vt_symbol(vt_symbol)
 
 	return database_manager.load_bar_data(
-		symbol, exchange, interval, start, end
+		symbol, exchange, interval, start, end, columns,
 	)
