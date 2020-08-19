@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta
 from typing import Dict, List, Set, Tuple
 from functools import lru_cache
 import traceback
+from dataclasses import dataclass
 import pandas as pd
 import re
 import os
@@ -37,29 +38,53 @@ OPTION_EXCHANGE_DICT = {
     "MA": "CFFEX", "CF": "CFFEX", "RM": "CFFEX", "SR": "CFFEX", "TA": "CFFEX"
 }
 
+
+@dataclass
+class OptionBacktestingInfo:
+    """
+    record underlying, base_dir, exchange_days, posit or delta_level, dominant and columns 
+    """
+
+    underlying: str
+    base_dir: str
+    exchange_days: int = 10
+    option_select: Tuple = ("posit", 1)
+    dominant: bool = True
+    columns: Tuple = None
+
+
+@dataclass
+class OptionTradeInfo:
+    """
+    record 
+    rate, slippage, size, and pricetick
+    """
+
+    rate: float = 0
+    slippage: float = 0
+    size: int = 1
+    pricetick: float = 0
+
+
 class OptionBacktestingEngine(BacktestingEngine):
     """"""
 
     gateway_name = "OPTION_BACKTESTING"
 
-    def __init__(self, underlying, exchange_days, posit, rate, slippage, size, pricetick, base_dir, dominant=True,
-                 columns=None):
+    def __init__(self, option_backtesting_info, option_trade_info):
         """"""
         super().__init__()
-        self.posit = posit
-        self.rate = rate
-        self.slippage = slippage
-        self.size = size
-        self.pricetick = pricetick
+        self.option_select = option_backtesting_info.option_select
         self.pre_opt_symbols = []
-        self.underlying = underlying
-        self.donminant = dominant
-        self.option_exchange = OPTION_EXCHANGE_DICT[underlying]
-        self.base_dir = base_dir
+        self.underlying = option_backtesting_info.underlying
+        self.dominant = option_backtesting_info.dominant
+        self.option_exchange = OPTION_EXCHANGE_DICT[self.underlying]
+        self.base_dir = option_backtesting_info.base_dir
 
-        self.opt_info = DataImport(exchange_days, underlying, self.base_dir, dominant)
-        self.opt_data = DataImport(0, self.underlying, self.base_dir, dominant)
-        self.columns = columns
+        self.opt_info = DataImport(option_backtesting_info.exchange_days, self.underlying, self.base_dir, self.dominant)
+        self.opt_data = DataImport(0, self.underlying, self.base_dir, self.dominant)
+        self.option_trade_info = option_trade_info
+        self.columns = option_backtesting_info.columns
         database_manager.set_columns(self.columns)
 
     def set_parameters(
@@ -193,19 +218,23 @@ class OptionBacktestingEngine(BacktestingEngine):
         self.bars.clear()
 
         date = pd.to_datetime(str(dt)[:10])
-        tradable_opt, ttm = self.opt_info.available_opt(date, self.posit)
-        call_symbol = str(
-            tradable_opt[tradable_opt["option_type"] == "C"]["order_book_id"].values[0]) + "." + self.option_exchange
-        put_symbol = str(
-            tradable_opt[tradable_opt["option_type"] == "P"]["order_book_id"].values[0]) + "." + self.option_exchange
-        opt_symbols = [call_symbol, put_symbol]
+        self.select_type, self.select_value = self.option_select[0], self.option_select[1]
+        if self.select_type == "posit":
+            tradable_opt, ttm = self.opt_info.available_opt(date, self.select_value)
+        elif self.select_type == "delta":
+            tradable_opt, ttm = self.opt_info.delta_opt(date, self.select_value)
+
+        opt_symbols = []
+        for opt_symbol in tradable_opt["order_book_id"].values:
+            opt_symbols.append(str(opt_symbol) + "." + self.option_exchange)
+
         new_symbols = list(set(opt_symbols) - set(self.vt_symbols))
         if len(new_symbols) > 0:
             for vt_symbol in new_symbols:
-                self.rates[vt_symbol] = self.rate
-                self.slippages[vt_symbol] = self.slippage
-                self.sizes[vt_symbol] = self.size
-                self.priceticks[vt_symbol] = self.pricetick
+                self.rates[vt_symbol] = self.option_trade_info.rate
+                self.slippages[vt_symbol] = self.option_trade_info.slippage
+                self.sizes[vt_symbol] = self.option_trade_info.size
+                self.priceticks[vt_symbol] = self.option_trade_info.pricetick
             self.vt_symbols = self.vt_symbols + new_symbols
             self.load_data_new_bars(new_symbols)
         exsit_opt = self.opt_data.get_opt_info(date)
@@ -213,7 +242,6 @@ class OptionBacktestingEngine(BacktestingEngine):
         exist_symbols = list(set(self.vt_symbols).intersection(
             set(list(exsit_opt["order_book_id"].apply(lambda x: str(x) + "." + self.option_exchange).values))))
         exist_symbols = exist_symbols + self.basic_vt_symbols
-        # print(exist_symbols)
         for vt_symbol in exist_symbols:
             bar = self.history_data.get((dt, vt_symbol), None)
             if bar:

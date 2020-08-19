@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 import re
-from datetime import timedelta
 
 UNDERLYING_DICT = {
     "510050": "510050", "510300": "510300",
@@ -17,20 +16,24 @@ OPTION_DOMINANT_MONTH = {
     "MA": [1, 5, 9], "CF": [1, 5, 9], "RM": [1, 5, 9], "SR": [1, 5, 9], "TA": [1, 5, 9]
 }
 
-
 class DataImport:
 
     def __init__(self, days, underlying_symbol, base_dir, dominant):
 
         self.d = days
         self.base_dir = base_dir
+
         dominant_months = OPTION_DOMINANT_MONTH[underlying_symbol]
         if underlying_symbol.startswith("510"):
             underlying_symbol = underlying_symbol + ".XSHG"
         self.underlying_symbol = underlying_symbol
+        self.underlying_dir = self.underlying_symbol.split(".")[0]
+        self.underlying_base_dir = self.base_dir + self.underlying_dir + "/"
+
         opt_contract_info = pd.read_csv(self.base_dir + "opt_contract_info.csv")
         opt_contract_info = opt_contract_info[opt_contract_info["underlying_symbol"] == self.underlying_symbol]
         self.opt_contract_info = opt_contract_info.set_index('symbol')
+
         if (not dominant) or (len(dominant_months) == 0):
             pass
         else:
@@ -63,13 +66,13 @@ class DataImport:
         return exist_opt
 
     def get_underlying(self):
-        underlying_dir = self.underlying_symbol.split(".")[0]
-        current_dir = self.base_dir + underlying_dir + "/"
-        if not underlying_dir.startswith("510"):
-            underlying_fn = UNDERLYING_DICT[underlying_dir]
+        # underlying_dir = self.underlying_symbol.split(".")[0]
+        # current_dir = self.base_dir + underlying_dir + "/"
+        if not self.underlying_dir.startswith("510"):
+            underlying_fn = UNDERLYING_DICT[self.underlying_dir]
         else:
-            underlying_fn = underlying_dir
-        underlying_info = pd.read_csv(current_dir + underlying_fn + ".csv", index_col=0)
+            underlying_fn = self.underlying_dir
+        underlying_info = pd.read_csv(self.underlying_base_dir + underlying_fn + ".csv", index_col=0)
         underlying_info.index = pd.to_datetime(underlying_info.index)
         return underlying_info
 
@@ -161,5 +164,46 @@ class DataImport:
 
         opt = opt_c + opt_p
         tradable_opt = exist_opt[exist_opt['product_name'].isin(opt)]
+        ttm = tradable_opt["days"].values[0]
+        return tradable_opt, ttm
+
+    def get_delta(self, date, opt_symbol):
+        greek_base_dir = self.underlying_base_dir + "opt_greeks_1d/"
+        opt_greeks = pd.read_csv(greek_base_dir + opt_symbol + ".csv").set_index("trading_date")
+        opt_greeks.index = pd.to_datetime(opt_greeks.index)
+        delta = opt_greeks[opt_greeks.index == date]["delta"].values[0]
+        return delta
+
+    def delta_opt(self, date, delta_level):
+        """
+        find options by considering delta
+        """
+        # get rid of adjusted options
+        if self.underlying_symbol.startswith("510"):
+            exist_opt = self.get_none_adjust_opt(date)
+            exist_opt['product_name'] = exist_opt['product_name'].apply(lambda x: x.replace('A', 'M'))
+            exist_opt['strike'] = exist_opt['product_name'].apply(lambda x: int(x[-4:]) / 1000)
+        else:
+            exist_opt = self.get_opt_info(date)
+            exist_opt['strike'] = exist_opt['strike_price']
+
+        # calculate strike and days-to-maturity
+        exist_opt['days'] = ((exist_opt['de_listed_date'] - date) / np.timedelta64(1, 'D')).astype(int)
+        exist_opt = exist_opt[exist_opt['days'] > self.d]
+        exist_opt = exist_opt[exist_opt['days'] == exist_opt['days'].min()]
+
+        # get ETF50 price at that date
+        # underlying_info = self.get_underlying()
+        # underlying_price = underlying_info[underlying_info.index == date]['open'].values[0]
+        delta_table = []
+        for symbol in exist_opt["order_book_id"].values:
+            delta = self.get_delta(date, symbol)
+            delta_table.append([symbol, delta])
+        delta_table = pd.DataFrame(delta_table, columns=["order_book_id", "delta"])
+        delta_table["diff"] = delta_table["delta"] - delta_level
+        delta_table["abs_diff"] = abs(delta_table["diff"])
+        opt_symbol = delta_table[delta_table["abs_diff"] == delta_table["abs_diff"].min()]["order_book_id"].values[0]
+
+        tradable_opt = exist_opt[exist_opt["order_book_id"] == opt_symbol]
         ttm = tradable_opt["days"].values[0]
         return tradable_opt, ttm
