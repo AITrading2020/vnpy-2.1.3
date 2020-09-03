@@ -1,5 +1,6 @@
 from datetime import timedelta
 from typing import List, Optional
+from pytz import timezone
 
 from numpy import ndarray
 from rqdatac import init as rqdata_init
@@ -21,8 +22,10 @@ INTERVAL_VT2RQ = {
 INTERVAL_ADJUSTMENT_MAP = {
     Interval.MINUTE: timedelta(minutes=1),
     Interval.HOUR: timedelta(hours=1),
-    Interval.DAILY: timedelta()         # no need to adjust for daily bar
+    Interval.DAILY: timedelta()  # no need to adjust for daily bar
 }
+
+CHINA_TZ = timezone("Asia/Shanghai")
 
 
 class RqdataClient:
@@ -169,11 +172,14 @@ class RqdataClient:
 
         if df is not None:
             for ix, row in df.iterrows():
+                dt = row.name.to_pydatetime() - adjustment
+                dt = CHINA_TZ.localize(dt)
+
                 bar = BarData(
                     symbol=symbol,
                     exchange=exchange,
                     interval=interval,
-                    datetime=row.name.to_pydatetime() - adjustment,
+                    datetime=dt,
                     open_price=row["open"],
                     high_price=row["high"],
                     low_price=row["low"],

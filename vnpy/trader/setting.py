@@ -4,6 +4,7 @@ Global setting of VN Trader.
 
 from logging import CRITICAL
 from typing import Dict, Any
+from tzlocal import get_localzone
 
 from .utility import load_json
 
@@ -26,6 +27,7 @@ SETTINGS: Dict[str, Any] = {
     "rqdata.username": "",
     "rqdata.password": "",
 
+    "database.timezone": get_localzone().zone,
     "database.driver": "sqlite",  # see database.Driver
     "database.database": "database.db",  # for sqlite, use this as filepath
     "database.host": "localhost",
@@ -33,6 +35,15 @@ SETTINGS: Dict[str, Any] = {
     "database.user": "root",
     "database.password": "",
     "database.authentication_source": "admin",  # for mongodb
+
+    "genus.parent_host": "",
+    "genus.parent_port": "",
+    "genus.parent_sender": "",
+    "genus.parent_target": "",
+    "genus.child_host": "",
+    "genus.child_port": "",
+    "genus.child_sender": "",
+    "genus.child_target": "",
 }
 
 # Load global setting from json file.
