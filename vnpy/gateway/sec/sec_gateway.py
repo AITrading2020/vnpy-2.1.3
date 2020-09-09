@@ -146,14 +146,14 @@ class SecGateway(BaseGateway):
         compress_flag = COMPRESS_VT2SEC[setting["行情压缩"]]
 
         if (
-                (not md_address.startswith("tcp://"))
-                and (not md_address.startswith("ssl://"))
+            (not md_address.startswith("tcp://"))
+            and (not md_address.startswith("ssl://"))
         ):
             md_address = "tcp://" + md_address
 
         if (
-                (not td_address.startswith("tcp://"))
-                and (not td_address.startswith("ssl://"))
+            (not td_address.startswith("tcp://"))
+            and (not td_address.startswith("ssl://"))
         ):
             td_address = "tcp://" + td_address
 
@@ -431,14 +431,14 @@ class SecMdApi(MdApi):
         pass
 
     def connect(
-            self,
-            accountid: str,
-            password: str,
-            md_address: str,
-            auth_code: str,
-            appid: str,
-            collection_type: int,
-            compress_flag: int,
+        self,
+        accountid: str,
+        password: str,
+        md_address: str,
+        auth_code: str,
+        appid: str,
+        collection_type: int,
+        compress_flag: int,
     ) -> None:
         """"""
         self.accountid = accountid
@@ -1233,13 +1233,13 @@ class SecTdApi(TdApi):
         pass
 
     def connect(
-            self,
-            accountid: str,
-            password: str,
-            td_address: str,
-            auth_code: str,
-            appid: str,
-            collection_type: int,
+        self,
+        accountid: str,
+        password: str,
+        td_address: str,
+        auth_code: str,
+        appid: str,
+        collection_type: int,
     ) -> None:
         """"""
         self.accountid = accountid

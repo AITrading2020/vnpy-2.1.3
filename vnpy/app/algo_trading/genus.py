@@ -17,6 +17,7 @@ from .base import (
     EVENT_ALGO_PARAMETERS, EVENT_ALGO_VARIABLES, EVENT_ALGO_LOG, APP_NAME
 )
 
+
 CHINA_TZ = pytz.timezone("Asia/Shanghai")
 
 EXCHANGE_VT2GNS = {
@@ -66,6 +67,7 @@ STATUS_VT2GNS = {
 
 @dataclass
 class GenusChildOrder:
+
     cl_ord_id: str = ""
     order_id: str = ""
     symbol: str = ""
@@ -551,13 +553,13 @@ class GenusClient:
             self.child_socket.stop()
 
     def send_order(
-            self,
-            vt_symbol: str,
-            direction: Direction,
-            offset: Offset,
-            order_type: OrderType,
-            price: float,
-            volume: float,
+        self,
+        vt_symbol: str,
+        direction: Direction,
+        offset: Offset,
+        order_type: OrderType,
+        price: float,
+        volume: float,
     ):
         """"""
         contract = self.main_engine.get_contract(vt_symbol)

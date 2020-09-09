@@ -52,9 +52,9 @@ class SpreadAlgoTemplate:
             self.target = -volume
 
         self.status: Status = Status.NOTTRADED  # Algo status
-        self.count: int = 0  # Timer count
-        self.traded: float = 0  # Volume traded
-        self.traded_volume: float = 0  # Volume traded (Abs value)
+        self.count: int = 0                     # Timer count
+        self.traded: float = 0                  # Volume traded
+        self.traded_volume: float = 0           # Volume traded (Abs value)
 
         self.leg_traded: Dict[str, float] = defaultdict(int)
         self.leg_orders: Dict[str, List[str]] = defaultdict(list)

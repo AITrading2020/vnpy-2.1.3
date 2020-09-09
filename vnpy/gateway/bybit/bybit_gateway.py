@@ -517,8 +517,8 @@ class BybitRestApi(RestClient):
             self.gateway.on_order(order)
 
         if (
-                "last_page" in result
-                and result["current_page"] != result["last_page"]
+            "last_page" in result
+            and result["current_page"] != result["last_page"]
         ):
             self.query_order(result["current_page"] + 1)
         else:

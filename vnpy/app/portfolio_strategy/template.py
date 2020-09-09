@@ -217,7 +217,7 @@ class StrategyTemplate(ABC):
             if (self.pos[vt_symbol] != 0):
                 active_vt_symbols.append(vt_symbol)
         return active_vt_symbols
-
+    
     def get_pos(self, vt_symbol: str) -> int:
         """"""
         return self.pos.get(vt_symbol, 0)

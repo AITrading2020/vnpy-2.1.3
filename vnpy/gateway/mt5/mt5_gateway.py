@@ -324,7 +324,7 @@ class Mt5Gateway(BaseGateway):
             begin = generate_datetime2(data[0]["time"])
             end = generate_datetime2(data[-1]["time"])
 
-            msg = f"获取历史数据成功，{req.symbol.replace('.', '-')} - {req.interval.value}，{begin} - {end}"
+            msg = f"获取历史数据成功，{req.symbol.replace('.','-')} - {req.interval.value}，{begin} - {end}"
             self.write_log(msg)
 
         return history
