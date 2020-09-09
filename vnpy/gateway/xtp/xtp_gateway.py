@@ -700,9 +700,9 @@ class XtpTdApi(TdApi):
 
         contract.option_portfolio = data["underlying_security_id"] + "_O"
         contract.option_underlying = (
-                data["underlying_security_id"]
-                + "-"
-                + str(data["delivery_month"])
+            data["underlying_security_id"]
+            + "-"
+            + str(data["delivery_month"])
         )
         contract.option_type = OPTIONTYPE_XTP2VT.get(data["call_or_put"], None)
 

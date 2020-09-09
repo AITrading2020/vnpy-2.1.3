@@ -28,8 +28,8 @@ SETTINGS: Dict[str, Any] = {
     "rqdata.password": "",
 
     "database.timezone": get_localzone().zone,
-    "database.driver": "sqlite",  # see database.Driver
-    "database.database": "database.db",  # for sqlite, use this as filepath
+    "database.driver": "sqlite",                # see database.Driver
+    "database.database": "database.db",         # for sqlite, use this as filepath
     "database.host": "localhost",
     "database.port": 3306,
     "database.user": "root",
