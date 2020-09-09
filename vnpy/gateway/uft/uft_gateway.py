@@ -749,14 +749,14 @@ class UftTdApi(TdApi):
         self.gateway.on_trade(trade)
 
     def connect(
-            self,
-            address: str,
-            server_license: str,
-            userid: str,
-            password: str,
-            auth_code: str,
-            appid: str,
-            application_type: str
+        self,
+        address: str,
+        server_license: str,
+        userid: str,
+        password: str,
+        auth_code: str,
+        appid: str,
+        application_type: str
     ) -> None:
         """
         Start connection to server.

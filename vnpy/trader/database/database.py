@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     from vnpy.trader.constant import Interval, Exchange  # noqa
     from vnpy.trader.object import BarData, TickData  # noqa
 
+import pandas as pd
+
 DB_TZ = timezone(SETTINGS["database.timezone"])
 
 
@@ -51,11 +53,15 @@ class BaseDatabaseManager(ABC):
     ):
         pass
 
+    # @abstractmethod
+    # def save_tick_data(
+    #     self,
+    #     datas: Sequence["TickData"],
+    # ):
+    #     pass
+
     @abstractmethod
-    def save_tick_data(
-        self,
-        datas: Sequence["TickData"],
-    ):
+    def save_tick_data(self, df: pd.DataFrame):
         pass
 
     @abstractmethod
@@ -125,3 +131,10 @@ class BaseDatabaseManager(ABC):
         delete all records for a symbol
         """
         pass
+
+    # @abstractmethod
+    # def to_bar(self, df:pd.DataFrame):
+    #     """
+    #     把加载数据变为bar类型
+    #     """
+    #     pass

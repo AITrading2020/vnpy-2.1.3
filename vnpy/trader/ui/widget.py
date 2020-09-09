@@ -917,7 +917,7 @@ class TradingWidget(QtWidgets.QWidget):
                 direction = Direction.LONG
             elif data.direction == Direction.LONG:
                 direction = Direction.SHORT
-            else:  # Net position mode
+            else:       # Net position mode
                 if data.volume > 0:
                     direction = Direction.SHORT
                 else:

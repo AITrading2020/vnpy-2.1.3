@@ -311,7 +311,7 @@ class CtpMdApi(MdApi):
         if not exchange:
             return
 
-        timestamp = f"{self.current_date} {data['UpdateTime']}.{int(data['UpdateMillisec'] / 100)}"
+        timestamp = f"{self.current_date} {data['UpdateTime']}.{int(data['UpdateMillisec']/100)}"
         dt = datetime.strptime(timestamp, "%Y%m%d %H:%M:%S.%f")
         dt = CHINA_TZ.localize(dt)
 
