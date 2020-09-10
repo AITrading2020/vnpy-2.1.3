@@ -76,6 +76,22 @@ class DataImport:
         underlying_info.index = pd.to_datetime(underlying_info.index)
         return underlying_info
 
+    def get_underlying_data(self, order_book_id):
+        """
+        Get underlying order book id
+        """
+
+        if ("." in order_book_id):
+            underlying_filename = order_book_id.split(".")[0] + ".csv"
+        else:
+            underlying_filename = order_book_id + ".csv"
+
+        print(underlying_filename)
+        underlying_data_dir = self.underlying_base_dir + "underlying_price_1d/"
+        underlying_data = pd.read_csv(underlying_data_dir + underlying_filename, index_col=0)
+        underlying_data.index = pd.to_datetime(underlying_data.index)
+        return underlying_data
+
     def get_none_adjust_opt(self, date):
         exist_opt = self.get_opt_info(date)
         a_opt_list = exist_opt[exist_opt['adjust'] == 1]['product_name'].values.tolist()
@@ -105,9 +121,10 @@ class DataImport:
         exist_opt = exist_opt[exist_opt['days'] > self.d]
         exist_opt = exist_opt[exist_opt['days'] == exist_opt['days'].min()]
 
-        # get ETF50 price at that date
-        underlying_info = self.get_underlying()
-        underlying_price = underlying_info[underlying_info.index == date]['open'].values[0]
+        # get ETF50 or Future price at that date
+        underlying_order_book_id = exist_opt["underlying_order_book_id"].values[0]
+        underlying_data = self.get_underlying_data(underlying_order_book_id)
+        underlying_price = underlying_data[underlying_data.index == date]['close'].values[0]
 
         # get the minimum difference between strike and ETF50 price
         opt_c, opt_p = [], []
